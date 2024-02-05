@@ -9,7 +9,7 @@ from tkinter import filedialog
 from PIL import Image, ImageTk
 import os
 import shutil
-import datetime
+from datetime import datetime
 import time
 import re
 import webbrowser
@@ -81,7 +81,8 @@ CREATE TABLE IF NOT EXISTS appoinment_results (
     id INT AUTO_INCREMENT PRIMARY KEY,
     appoinment_id INT NOT NULL,
     staff_id INT NOT NULL,
-    appoinment_result TEXT NOT NULL,
+    gate_number INT NOT NULL,
+    appoinment_result VARCHAR(255) NOT NULL DEFAULT 'Under Review',
     appoinment_status VARCHAR(255) DEFAULT 'Pending',
     FOREIGN KEY (appoinment_id) REFERENCES appoinment(id),
     FOREIGN KEY (staff_id) REFERENCES users(id)
@@ -568,27 +569,923 @@ class auto360:
         self.staff_available_combobox['values'] = ("Available", "Not Available")
         self.staff_available_combobox.place(x=700, y=5,width=200)
 
-        #staff available label right corner
-        self.staff_available_label = Label(self.dashboard_frame, text="Staff Availability", font=("times new roman", 15, "bold"), bg="white", fg="black")
-        self.staff_available_label.place(x=500, y=5)
+        #check database and set to value
+        mycursor.execute("SELECT staff_available FROM users WHERE id=%s", (self.user_id,))
+        staff_available = mycursor.fetchone()
+
+        if staff_available[0] == "Available":
+            self.staff_available_combobox.set("Available")
+        else:
+            self.staff_available_combobox.set("Not Available")
+
+        #if not available then set color to red
+        self.staff_available_combobox.bind("<<ComboboxSelected>>", self.staff_available_color)
+
+
+        # #staff available label right corner
+        # self.staff_available_label = Label(self.dashboard_frame, text="Staff Availability", font=("times new roman", 15, "bold"), bg="white", fg="black")
+        # self.staff_available_label.place(x=500, y=5)
+
+        #logout button bottom center
+        self.logout_button = Button(self.dashboard_frame, text="Logout", font=("times new roman", 15, "bold"), bg="blue", fg="white", command=self.logout)
+        self.logout_button.place(x=400, y=500)
 
         #notebook frame
         self.notebook = ttk.Notebook(self.dashboard_frame)
         self.notebook.place(x=0, y=50, relwidth=1, relheight=1)
 
-        #current apporinment tab
-        self.current_appoinment_tab = Frame(self.notebook, bg="white")
-        self.notebook.add(self.current_appoinment_tab, text="Current Appoinment")
 
-        #previous appoinment tab
+        #configure tabs column width
+        self.notebook.grid_columnconfigure(0, weight=1)
+
+
+
+
+        #current appointments tab
+        self.current_appoinment_tab = Frame(self.notebook, bg="white")
+        self.notebook.add(self.current_appoinment_tab, text="Current Appoinments")
+
+        #frame inside current appoinment tab for treeview
+        self.current_appoinment_frame = Frame(self.current_appoinment_tab, bg="white")
+        self.current_appoinment_frame.place(x=100, y=50,width=800, height=400)
+
+        #treeview of current appoinments, appointmentid, vehicle name, vehicle model,appoinment type 
+        self.current_appoinment_tree = ttk.Treeview(self.current_appoinment_frame, columns=("Appoinment id","Vehicle Name", "Vehicle Model", "Appoinment Type"))
+        self.current_appoinment_tree.heading("Appoinment id", text="Appoinment id")
+        self.current_appoinment_tree.heading("Vehicle Name", text="Vehicle Name")
+        self.current_appoinment_tree.heading("Vehicle Model", text="Vehicle Model")
+        self.current_appoinment_tree.heading("Appoinment Type", text="Appoinment Type")
+
+        self.current_appoinment_tree['show'] = 'headings'
+
+        self.current_appoinment_tree.column("Appoinment id", width=100)
+        self.current_appoinment_tree.column("Vehicle Name", width=100)
+        self.current_appoinment_tree.column("Vehicle Model", width=100)
+        self.current_appoinment_tree.column("Appoinment Type", width=100)
+        
+        self.current_appoinment_tree.pack(fill=BOTH, expand=1)
+
+        #fill the treeview from appoinment results
+        mycursor.execute("SELECT * FROM appoinment_results WHERE staff_id=%s AND appoinment_status='In Progress'", (self.user_id,))
+        appoinments = mycursor.fetchall()
+        for appoinment in appoinments:
+            print(appoinment)
+            appoinment_id = appoinment[1]
+            
+            #get appoinment details from appoinment table
+            mycursor.execute("SELECT * FROM appoinment WHERE id=%s", (appoinment_id,))
+            appoinment = mycursor.fetchone()
+
+            print(appoinment)
+            vehicle_id = appoinment[2]
+            appoinment_type = appoinment[5]
+
+
+            mycursor.execute("SELECT * FROM vehicles WHERE id=%s", (vehicle_id,))
+            vehicle = mycursor.fetchone()
+            if vehicle:
+                vehicle_name = vehicle[2]
+                vehicle_model = vehicle[3]
+                self.current_appoinment_tree.insert("", "end", values=(appoinment_id, vehicle_name, vehicle_model, appoinment_type))
+
+        #configure the treeview column
+        self.current_appoinment_tree.column("#1", anchor="center")
+        self.current_appoinment_tree.column("#2", anchor="center")
+        self.current_appoinment_tree.column("#3", anchor="center")
+        self.current_appoinment_tree.column("#4", anchor="center")
+
+        #Inspect button
+        self.inspect_button = Button(self.current_appoinment_tab, text="Inspect", font=("times new roman", 15, "bold"), bg="blue", fg="white", command=self.inspect)
+        self.inspect_button.place(x=100, y=480)
+
+
+        #previous appointments tab frame
         self.previous_appoinment_tab = Frame(self.notebook, bg="white")
-        self.notebook.add(self.previous_appoinment_tab, text="Previous Appoinment")
+        self.notebook.add(self.previous_appoinment_tab, text="Previous Appoinments")
+
+        #frame inside previous appoinment tab for treeview
+        self.previous_appoinment_frame = Frame(self.previous_appoinment_tab, bg="white")
+        self.previous_appoinment_frame.place(x=100, y=50,width=800, height=400)
+
+        #treeview of previous appoinments, appointmentid, vehicle name, vehicle model,appoinment type
+        self.previous_appoinment_tree = ttk.Treeview(self.previous_appoinment_frame, columns=("Appoinment id","Vehicle Name", "Vehicle Model", "Appoinment Type"))
+        self.previous_appoinment_tree.heading("Appoinment id", text="Appoinment id")
+        self.previous_appoinment_tree.heading("Vehicle Name", text="Vehicle Name")
+        self.previous_appoinment_tree.heading("Vehicle Model", text="Vehicle Model")
+        self.previous_appoinment_tree.heading("Appoinment Type", text="Appoinment Type")
+        
+        self.previous_appoinment_tree['show'] = 'headings'
+
+        self.previous_appoinment_tree.column("Appoinment id", width=100)
+        self.previous_appoinment_tree.column("Vehicle Name", width=100)
+        self.previous_appoinment_tree.column("Vehicle Model", width=100)
+        self.previous_appoinment_tree.column("Appoinment Type", width=100)
+
+        self.previous_appoinment_tree.pack(fill=BOTH, expand=1)
+
+        #fill the treeview from appoinment results
+        mycursor.execute("SELECT * FROM appoinment_results WHERE staff_id=%s AND appoinment_status='Completed'", (self.user_id,))
+        appoinments = mycursor.fetchall()
+        print(self.user_id, appoinments)
+        for appoinment in appoinments:
+            print(self.user_id, appoinment)
+            appoinment_id = appoinment[0]
+
+            #appoinment details
+            mycursor.execute("SELECT * FROM appoinment WHERE id=%s", (appoinment_id,))
+            appoinment = mycursor.fetchone()
+            vehicle_id = appoinment[2]
+
+            appoinment_type = appoinment[5]
+            
+            try:
+                mycursor.execute("SELECT * FROM vehicles WHERE id=%s", (vehicle_id,))
+                vehicle = mycursor.fetchone()
+                vehicle_name = vehicle[2]
+                vehicle_model = vehicle[3]
+
+                self.previous_appoinment_tree.insert("", "end", values=(appoinment_id, vehicle_name, vehicle_model, appoinment_type))
+            except:
+                pass
+
+        #configure the treeview column
+        self.previous_appoinment_tree.column("#1", anchor="center")
+        self.previous_appoinment_tree.column("#2", anchor="center")
+        self.previous_appoinment_tree.column("#3", anchor="center")
+        self.previous_appoinment_tree.column("#4", anchor="center")
 
         #my profile tab
         self.my_profile_tab = Frame(self.notebook, bg="white")
         self.notebook.add(self.my_profile_tab, text="My Profile")
 
-        #frame inside current appoinment tab for treeview
+                #My Profile tab title frame
+        self.my_profile_title_frame = Frame(self.my_profile_tab, bg="white")
+        self.my_profile_title_frame.place(x=0, y=0, relwidth=1, height=50)
+
+        #my profile heading "My Profile"
+        self.my_profile_heading = Label(self.my_profile_title_frame, text="My Profile", font=("times new roman", 20, "bold"), bg="white", fg="black")
+        self.my_profile_heading.place(x=5, y=5, relwidth=1)
+
+        #frame inside my profile tab for user details
+        self.my_profile_frame = Frame(self.my_profile_tab, bg="white")
+        self.my_profile_frame.place(x=100, y=50,width=800, height=400)
+
+        #username label
+        self.username_label = Label(self.my_profile_frame, text="Username", font=("times new roman", 15, "bold"), bg="white", fg="black")
+        self.username_label.place(x=100, y=50)
+
+        #username entry side by side
+        self.username_entry = Entry(self.my_profile_frame, font=("times new roman", 15), bg="lightgray")
+        self.username_entry.place(x=300, y=50)
+
+        #fill in the username entry
+        self.username_entry.insert(0, self.username)
+
+        #email label
+        self.email_label = Label(self.my_profile_frame, text="Email", font=("times new roman", 15, "bold"), bg="white", fg="black")
+        self.email_label.place(x=100, y=100)
+
+        #email entry side by side
+        self.email_entry = Entry(self.my_profile_frame, font=("times new roman", 15), bg="lightgray")
+        self.email_entry.place(x=300, y=100)
+
+        #fill in the email entry
+        self.email_entry.insert(0, self.email)
+
+        #driving license label
+        self.driving_license_label = Label(self.my_profile_frame, text="Driving License", font=("times new roman", 15, "bold"), bg="white", fg="black")
+        self.driving_license_label.place(x=100, y=150)
+
+        #driving license entry side by side
+        self.driving_license_entry = Entry(self.my_profile_frame, font=("times new roman", 15), bg="lightgray")
+        self.driving_license_entry.place(x=300, y=150)
+
+        #fill in the driving license entry
+        self.driving_license_entry.insert(0, self.driving_license)
+        
+        #phone number label
+        self.phone_number_label = Label(self.my_profile_frame, text="Phone Number", font=("times new roman", 15, "bold"), bg="white", fg="black")
+        self.phone_number_label.place(x=100, y=200)
+
+        #phone number entry side by side
+        self.phone_number_entry = Entry(self.my_profile_frame, font=("times new roman", 15), bg="lightgray")
+        self.phone_number_entry.place(x=300, y=200)
+
+        #fill in the phone number entry
+        self.phone_number_entry.insert(0, self.phone_number)
+
+        #update profile button
+        self.update_profile_button = Button(self.my_profile_frame, text="Update Profile", font=("times new roman", 15, "bold"), bg="blue", fg="white", command=self.update_profile)
+        self.update_profile_button.place(x=100, y=250)
+        
+
+    #inspect
+    def inspect(self):
+        #get the selected item from the treeview
+        selected_item = self.current_appoinment_tree.selection()
+        appoinment_id = self.current_appoinment_tree.item(selected_item, "values")[0]
+
+        #appoinment details
+        mycursor.execute("SELECT * FROM appoinment WHERE id=%s", (appoinment_id,))
+        appoinment = mycursor.fetchone()
+        self.appoinment_id = appoinment[0]
+        appoinment_date = appoinment[3]
+        appoinment_time = appoinment[4]
+        inspection_type = appoinment[5]
+        #vehicle details
+        vehicle_id = appoinment[2]
+
+        #vehicle details
+        mycursor.execute("SELECT * FROM vehicles WHERE id=%s", (vehicle_id,))
+        vehicle = mycursor.fetchone()
+        vehicle_name = vehicle[2]
+        vehicle_model = vehicle[3]
+        vehicle_number = vehicle[4]
+
+        #clear current appoinment frame
+        for i in self.current_appoinment_tab.winfo_children():
+            i.destroy()
+
+        
+        #current appoinment tab title frame
+        self.current_appoinment_frame = Frame(self.current_appoinment_tab, bg="white")
+        self.current_appoinment_frame.place(x=10, y=10, relwidth=1, height=400)
+
+        # Create a frame to display the details
+        self.details_frame = Frame(self.current_appoinment_frame, bg="white")
+        self.details_frame.place(x=10, y=10, relwidth=1, height=400)
+
+        # Vehicle Name Label
+        vehicle_name_label = Label(self.details_frame, text="Vehicle Name: " + vehicle_name, font=("times new roman", 15), bg="white", fg="black")
+        vehicle_name_label.place(x=10, y=10)
+
+        # Vehicle Model Label
+        vehicle_model_label = Label(self.details_frame, text="Vehicle Model: " + vehicle_model, font=("times new roman", 15), bg="white", fg="black")
+        vehicle_model_label.place(x=10, y=40)
+
+        # Vehicle Number Label
+        vehicle_number_label = Label(self.details_frame, text="Vehicle Number: " + vehicle_number, font=("times new roman", 15), bg="white", fg="black")
+        vehicle_number_label.place(x=10, y=70)
+
+        # Inspection Type Label
+        inspection_type_label = Label(self.details_frame, text="Inspection Type: " + inspection_type, font=("times new roman", 15), bg="white", fg="black")
+        inspection_type_label.place(x=10, y=100)
+
+        # Inspection Description Label
+        inspection_description_label = Label(self.details_frame, text="Inspection Description:", font=("times new roman", 15), bg="white", fg="black")
+        inspection_description_label.place(x=10, y=130)
+
+        # Inspection Description Entry to type
+        self.inspection_description_entry = Text(self.details_frame, font=("times new roman", 15), bg="lightgray", height=5)
+        self.inspection_description_entry.place(x=10, y=160)
+
+        #finailize inspection button
+        finalize_inspection_button = Button(self.details_frame, text="Finalize Inspection", font=("times new roman", 15, "bold"), bg="blue", fg="white", command=self.finalize_inspection)
+        finalize_inspection_button.place(x=10, y=300)
+
+        #back button
+        back_button = Button(self.details_frame, text="Back", font=("times new roman", 15, "bold"), bg="blue", fg="white", command=self.staff_dashboard)
+        back_button.place(x=200, y=300)
+
+
+        
+
+
+    #finalize_inspection
+    def finalize_inspection(self):
+        #get the inspection description
+        inspection_description = self.inspection_description_entry.get("1.0", "end-1c")
+
+        #update the appoinment status to completed
+        mycursor.execute("UPDATE appoinment SET appoinment_status='Completed' WHERE id=%s", (self.appoinment_id,))
+        mydb.commit()
+
+        #update the appoinment status to completed
+        mycursor.execute("UPDATE appoinment_results SET appoinment_status='Completed' WHERE appoinment_id=%s", (self.appoinment_id,))
+        mydb.commit()
+
+        #update the appoinment_result in appoinment_results table
+        mycursor.execute("UPDATE appoinment_results SET appointment_result=%s WHERE appoinment_id=%s", (inspection_description, self.appoinment_id))
+
+
+        #update the appoinment description in appoinments table
+        mycursor.execute("UPDATE appoinment SET appointment_description=%s WHERE id=%s", (inspection_description, self.appoinment_id))
+        mydb.commit()
+
+        #messagebox
+        messagebox.showinfo("Success", "Inspection has been completed")
+
+        #refresh the page
+        self.staff_dashboard()
+
+
+
+    #staff_available_color
+    def staff_available_color(self, event):
+        if self.staff_available_combobox.get() == "Not Available":
+            self.staff_available_combobox.config({"background": "red"})
+        else:
+            self.staff_available_combobox.config({"background": "green"})
+
+        #update the user availability on the database
+        mycursor.execute("UPDATE users SET staff_available=%s WHERE id=%s", (self.staff_available_combobox.get(), self.user_id))
+        mydb.commit()
+
+        #messagebox
+        messagebox.showinfo("Success", "Your availability has been updated")
+
+
+    #def admin_dashboard
+    def admin_dashboard(self):
+        for i in self.root.winfo_children():
+            i.destroy()
+
+        #welcome to auto360 label
+        self.welcome_label = Label(self.root, text="Welcome to Auto360", font=("times new roman", 20, "bold"), bg="white", fg="black")
+        self.welcome_label.place(x=0, y=0, relwidth=1)
+
+        #dashboard frame
+        self.dashboard_frame = Frame(self.root, bg="white")
+        self.dashboard_frame.place(x=0, y=50, relwidth=1, height=600)
+
+        #staff login heading "Admin Login"
+        self.staff_login_heading = Label(self.dashboard_frame, text="Admin Login", font=("times new roman", 20, "bold"), bg="white", fg="black")
+        self.staff_login_heading.place(x=5, y=5, relwidth=1)
+
+
+        #notebook 
+        self.notebook = ttk.Notebook(self.dashboard_frame)
+        self.notebook.place(x=0, y=50, relwidth=1, relheight=1)
+
+        #auto360 tab
+        self.auto360_tab = Frame(self.notebook, bg="white")
+        self.notebook.add(self.auto360_tab, text="Auto360")
+
+        #current appoinment tab
+        self.current_appoinment_tab = Frame(self.notebook, bg="white")
+        self.notebook.add(self.current_appoinment_tab, text="Current Appoinments")
+
+        #In Progress
+        self.in_progress_tab = Frame(self.notebook, bg="white")
+        self.notebook.add(self.in_progress_tab, text="In Progress")
+
+        #previous appoinment tab
+        self.previous_appoinment_tab = Frame(self.notebook, bg="white")
+        self.notebook.add(self.previous_appoinment_tab, text="Previous Appoinmens")
+
+
+
+        #staff tab
+        self.staff_tab = Frame(self.notebook, bg="white")
+        self.notebook.add(self.staff_tab, text="Staff")
+
+        #staff tab frame
+        self.staff_tab_frame = Frame(self.staff_tab, bg="white")
+        self.staff_tab_frame.place(x=100, y=50,width=800, height=400)
+
+        #staff tab heading frame
+        self.staff_tab_heading_frame = Frame(self.staff_tab, bg="white")
+        self.staff_tab_heading_frame.place(x=0, y=0, relwidth=1, height=50)
+
+        #staff tab heading "Staff details"
+        self.staff_tab_heading = Label(self.staff_tab_heading_frame, text="Staff details", font=("times new roman", 20, "bold"), bg="white", fg="black")
+        self.staff_tab_heading.place(x=5, y=5, relwidth=1)
+
+        #treeview of staff
+        self.staff_tree = ttk.Treeview(self.staff_tab_frame, columns=("Staff id","Username", "Email","Phone Number", "Staff Availability"))
+        self.staff_tree.heading("Staff id", text="Staff id")
+        self.staff_tree.heading("Username", text="Username")
+        self.staff_tree.heading("Email", text="Email")
+        self.staff_tree.heading("Phone Number", text="Phone Number")
+        self.staff_tree.heading("Staff Availability", text="Staff Availability")
+
+        self.staff_tree['show'] = 'headings'
+
+        self.staff_tree.column("Staff id", width=100)
+        self.staff_tree.column("Username", width=100)
+        self.staff_tree.column("Email", width=100)
+        self.staff_tree.column("Phone Number", width=100)
+        self.staff_tree.column("Staff Availability", width=100) 
+
+        self.staff_tree.pack(fill=BOTH, expand=1)
+
+        #fill the treeview
+        mycursor.execute("SELECT * FROM users WHERE type='staff'")
+        staffs = mycursor.fetchall()
+        for staff in staffs:
+            staff_id = staff[0]
+            username = staff[1]
+            email = staff[2]
+            phone_number = staff[4]
+            staff_available = staff[7]
+
+            self.staff_tree.insert("", "end", values=(staff_id, username, email, phone_number, staff_available))
+
+        #configure the treeview column
+        self.staff_tree.column("#1", anchor="center")
+        self.staff_tree.column("#2", anchor="center")
+        self.staff_tree.column("#3", anchor="center")
+        self.staff_tree.column("#4", anchor="center")
+        self.staff_tree.column("#5", anchor="center")
+        
+        #add staff button
+        self.add_staff_button = Button(self.staff_tab, text="Add Staff", font=("times new roman", 15, "bold"), bg="blue", fg="white", command=self.add_staff)
+        self.add_staff_button.place(x=100, y=450)
+
+        #update staff button
+        self.update_staff_button = Button(self.staff_tab, text="Update Staff", font=("times new roman", 15, "bold"), bg="blue", fg="white", command=self.update_staff)
+        self.update_staff_button.place(x=300, y=450)
+
+        #delete staff button
+        self.delete_staff_button = Button(self.staff_tab, text="Delete Staff", font=("times new roman", 15, "bold"), bg="blue", fg="white", command=self.delete_staff)
+        self.delete_staff_button.place(x=500, y=450)
+
+        #current appointments tab title
+        self.current_appointment_title_frame = Frame(self.current_appoinment_tab, bg="white")
+        self.current_appointment_title_frame.place(x=0, y=0, relwidth=1, height=50)
+
+        #current appointments heading "Todays Appointments"
+        self.current_appointment_heading = Label(self.current_appointment_title_frame, text="Todays Appointments", font=("times new roman", 20, "bold"), bg="white", fg="black")
+        self.current_appointment_heading.place(x=5, y=5, relwidth=1)
+
+        #frame inside current appointments tab for treeview
+        self.current_appointment_frame = Frame(self.current_appoinment_tab, bg="white")
+        self.current_appointment_frame.place(x=100, y=50,width=800, height=400)
+
+        #treeview of current appointments
+        self.current_appointment_tree = ttk.Treeview(self.current_appointment_frame, columns=("Appoinment id","Vehicle Name", "Appoinment Date", "Appoinment Time", "Appoinment Type"))
+        self.current_appointment_tree.heading("Appoinment id", text="Appoinment id")
+        self.current_appointment_tree.heading("Vehicle Name", text="Vehicle Name")
+        self.current_appointment_tree.heading("Appoinment Date", text="Appoinment Date")
+        self.current_appointment_tree.heading("Appoinment Time", text="Appoinment Time")
+        self.current_appointment_tree.heading("Appoinment Type", text="Appoinment Type")
+
+        self.current_appointment_tree['show'] = 'headings'
+
+        self.current_appointment_tree.column("Appoinment id", width=100)
+        self.current_appointment_tree.column("Vehicle Name", width=100)
+        self.current_appointment_tree.column("Appoinment Date", width=100)
+        self.current_appointment_tree.column("Appoinment Time", width=100)
+        self.current_appointment_tree.column("Appoinment Type", width=100)
+        
+        self.current_appointment_tree.pack(fill=BOTH, expand=1)
+
+        #print todays date
+        print(datetime.now().date())
+
+        #fill the treeview
+        mycursor.execute("SELECT * FROM appoinment WHERE appoinment_date=%s", (datetime.now().date(),))
+        appoinments = mycursor.fetchall()
+
+        for appoinment in appoinments:
+            appoinment_id = appoinment[0]
+            vehicle_id = appoinment[2]
+            appoinment_date = appoinment[3]
+            appoinment_time = appoinment[4]
+            appoinment_type = appoinment[5]
+
+            mycursor.execute("SELECT * FROM vehicles WHERE id=%s", (vehicle_id,))
+            vehicle = mycursor.fetchone()
+            vehicle_name = vehicle[2]
+
+            self.current_appointment_tree.insert("", "end", values=(appoinment_id, vehicle_name, appoinment_date, appoinment_time, appoinment_type))
+
+        #configure the treeview column
+        self.current_appointment_tree.column("#1", anchor="center")
+        self.current_appointment_tree.column("#2", anchor="center")
+        self.current_appointment_tree.column("#3", anchor="center")
+        self.current_appointment_tree.column("#4", anchor="center")
+        self.current_appointment_tree.column("#5", anchor="center")
+
+        #in progress tab title
+        self.in_progress_title_frame = Frame(self.in_progress_tab, bg="white")
+        self.in_progress_title_frame.place(x=0, y=0, relwidth=1, height=50)
+
+        #in progress heading "In Progress"
+        self.in_progress_heading = Label(self.in_progress_title_frame, text="In Progress", font=("times new roman", 20, "bold"), bg="white", fg="black")
+        self.in_progress_heading.place(x=5, y=5, relwidth=1)
+
+        #frame inside in progress tab for treeview
+        self.in_progress_frame = Frame(self.in_progress_tab, bg="white")
+        self.in_progress_frame.place(x=100, y=50,width=800, height=400)
+
+        #treeview of  appointments results table appointmentid, staffid , gatenumber, appointment status
+        self.in_progress_tree = ttk.Treeview(self.in_progress_frame, columns=("Appoinment id","Staff id", "Gate Number", "Appoinment Status"))
+        self.in_progress_tree.heading("Appoinment id", text="Appoinment id")
+        self.in_progress_tree.heading("Staff id", text="Staff id")
+        self.in_progress_tree.heading("Gate Number", text="Gate Number")
+        self.in_progress_tree.heading("Appoinment Status", text="Appoinment Status")
+
+        self.in_progress_tree['show'] = 'headings'
+
+        self.in_progress_tree.column("Appoinment id", width=100)
+        self.in_progress_tree.column("Staff id", width=100)
+        self.in_progress_tree.column("Gate Number", width=100)
+        self.in_progress_tree.column("Appoinment Status", width=100)
+        
+        self.in_progress_tree.pack(fill=BOTH, expand=1)
+
+        #fill the treeview
+        mycursor.execute("SELECT * FROM appoinment_results WHERE appoinment_status=%s", ("In Progress",))
+        appoinments = mycursor.fetchall()
+
+        for appoinment in appoinments:
+            appoinment_id = appoinment[0]
+            staff_id = appoinment[2]
+            gate_number = appoinment[3]
+            appoinment_status = appoinment[4]
+
+            self.in_progress_tree.insert("", "end", values=(appoinment_id, staff_id, gate_number, appoinment_status))
+
+        #configure the treeview column
+        self.in_progress_tree.column("#1", anchor="center")
+        self.in_progress_tree.column("#2", anchor="center")
+        self.in_progress_tree.column("#3", anchor="center")
+        self.in_progress_tree.column("#4", anchor="center")
+
+        #previous appointments tab title
+        self.previous_appointment_title_frame = Frame(self.previous_appoinment_tab, bg="white")
+        self.previous_appointment_title_frame.place(x=0, y=0, relwidth=1, height=50)
+
+        #previous appointments heading "Previous Appointments"
+        self.previous_appointment_heading = Label(self.previous_appointment_title_frame, text="Previous Appointments", font=("times new roman", 20, "bold"), bg="white", fg="black")
+        self.previous_appointment_heading.place(x=5, y=5, relwidth=1)
+
+        #frame inside previous appointments tab for treeview
+        self.previous_appointment_frame = Frame(self.previous_appoinment_tab, bg="white")
+        self.previous_appointment_frame.place(x=100, y=50,width=800, height=400)
+
+        #treeview of previous appointments
+        self.previous_appointment_tree = ttk.Treeview(self.previous_appointment_frame, columns=("Appoinment id","Vehicle Name", "Appoinment Date", "Appoinment Time", "Appoinment Type", "Appoinment Status"))
+        self.previous_appointment_tree.heading("Appoinment id", text="Appoinment id")
+
+        self.previous_appointment_tree.heading("Vehicle Name", text="Vehicle Name")
+        self.previous_appointment_tree.heading("Appoinment Date", text="Appoinment Date")
+        self.previous_appointment_tree.heading("Appoinment Time", text="Appoinment Time")
+        self.previous_appointment_tree.heading("Appoinment Type", text="Appoinment Type")
+        self.previous_appointment_tree.heading("Appoinment Status", text="Appoinment Status")
+
+        self.previous_appointment_tree['show'] = 'headings'
+
+        self.previous_appointment_tree.column("Appoinment id", width=100)
+        self.previous_appointment_tree.column("Vehicle Name", width=100)
+        self.previous_appointment_tree.column("Appoinment Date", width=100)
+        self.previous_appointment_tree.column("Appoinment Time", width=100)
+        self.previous_appointment_tree.column("Appoinment Type", width=100)
+        self.previous_appointment_tree.column("Appoinment Status", width=100)
+
+        self.previous_appointment_tree.pack(fill=BOTH, expand=1)
+
+        #fill the treeview
+        mycursor.execute("SELECT * FROM appoinment WHERE appoinment_date<%s", (datetime.now().date(),))
+        appoinments = mycursor.fetchall()
+
+        for appoinment in appoinments:
+            appoinment_id = appoinment[0]
+            vehicle_id = appoinment[2]
+            appoinment_date = appoinment[3]
+            appoinment_time = appoinment[4]
+            appoinment_type = appoinment[5]
+            appoinment_status = appoinment[7]
+
+            mycursor.execute("SELECT * FROM vehicles WHERE id=%s", (vehicle_id,))
+            vehicle = mycursor.fetchone()
+            vehicle_name = vehicle[2]
+
+            self.previous_appointment_tree.insert("", "end", values=(appoinment_id, vehicle_name, appoinment_date, appoinment_time, appoinment_type, appoinment_status))
+
+        #configure the treeview column
+        self.previous_appointment_tree.column("#1", anchor="center")
+        self.previous_appointment_tree.column("#2", anchor="center")
+        self.previous_appointment_tree.column("#3", anchor="center")
+        self.previous_appointment_tree.column("#4", anchor="center")
+        self.previous_appointment_tree.column("#5", anchor="center")
+        self.previous_appointment_tree.column("#6", anchor="center")
+
+
+        #current appoinment tab appoinment details
+        self.current_appointment_details_button = Button(self.current_appoinment_tab, text="Appoinment Details", font=("times new roman", 15, "bold"), bg="blue", fg="white", command=self.appointment_details)
+        self.current_appointment_details_button.place(x=100, y=450)
+
+        
+
+        
+
+
+    #appointment details
+    def appointment_details(self):
+        #get appoinment details from treeview
+        self.current_appointment_id = self.current_appointment_tree.item(self.current_appointment_tree.selection())['values'][0]
+        vehicle_name = self.current_appointment_tree.item(self.current_appointment_tree.selection())['values'][1]
+        appoinment_date = self.current_appointment_tree.item(self.current_appointment_tree.selection())['values'][2]
+        appoinment_time = self.current_appointment_tree.item(self.current_appointment_tree.selection())['values'][3]
+        appoinment_type = self.current_appointment_tree.item(self.current_appointment_tree.selection())['values'][4]
+
+        #clear current appointment tab
+        for i in self.current_appoinment_tab.winfo_children():
+            i.destroy()
+
+        #new frame
+        self.appointment_details_frame = Frame(self.current_appoinment_tab, bg="white")
+        self.appointment_details_frame.place(x=0, y=0, relwidth=1, relheight=1)
+
+        #appointment details heading "Appointment Details"
+        self.appointment_details_heading = Label(self.appointment_details_frame, text="Appointment Details", font=("times new roman", 20, "bold"), bg="white", fg="black")
+        self.appointment_details_heading.place(x=5, y=5, relwidth=1)
+
+        #vehicle name label
+        self.vehicle_name_label = Label(self.appointment_details_frame, text="Vehicle Name", font=("times new roman", 15, "bold"), bg="white", fg="black")
+        self.vehicle_name_label.place(x=100, y=50)
+
+        #vehicle name label side by side
+        self.vehicle_name_label = Label(self.appointment_details_frame, text=vehicle_name, font=("times new roman", 15), bg="white", fg="black")
+        self.vehicle_name_label.place(x=300, y=50)
+
+        #appoinment date label
+        self.appoinment_date_label = Label(self.appointment_details_frame, text="Appoinment Date", font=("times new roman", 15, "bold"), bg="white", fg="black")
+        self.appoinment_date_label.place(x=100, y=100)
+
+        #appoinment date label side by side
+        self.appoinment_date_label = Label(self.appointment_details_frame, text=appoinment_date, font=("times new roman", 15), bg="white", fg="black")
+        self.appoinment_date_label.place(x=300, y=100)
+
+        #appoinment time label
+        self.appoinment_time_label = Label(self.appointment_details_frame, text="Appoinment Time", font=("times new roman", 15, "bold"), bg="white", fg="black")
+        self.appoinment_time_label.place(x=100, y=150)
+
+        #appoinment time label side by side
+        self.appoinment_time_label = Label(self.appointment_details_frame, text=appoinment_time, font=("times new roman", 15), bg="white", fg="black")
+        self.appoinment_time_label.place(x=300, y=150)
+
+        #appoinment type label
+        self.appoinment_type_label = Label(self.appointment_details_frame, text="Appoinment Type", font=("times new roman", 15, "bold"), bg="white", fg="black")
+        self.appoinment_type_label.place(x=100, y=200)
+
+        #appoinment type label side by side
+        self.appoinment_type_label = Label(self.appointment_details_frame, text=appoinment_type, font=("times new roman", 15), bg="white", fg="black")
+        self.appoinment_type_label.place(x=300, y=200)
+
+
+        #Gates Label
+        self.gates_label = Label(self.appointment_details_frame, text="Gates", font=("times new roman", 15, "bold"), bg="white", fg="black")
+        self.gates_label.place(x=100, y=250)
+
+        #Gates Combobox
+        self.gates_combobox = ttk.Combobox(self.appointment_details_frame, font=("times new roman", 15), state="readonly")
+        self.gates_combobox['values'] = ("Gate 1", "Gate 2", "Gate 3", "Gate 4", "Gate 5")
+
+        self.gates_combobox.place(x=300, y=250)
+
+        #check inprogrress table for if any gate is present from Gate 1 to Gate 5
+        mycursor.execute("SELECT * FROM appoinment_results WHERE gate_number=%s", (self.gates_combobox.get(),))
+        gates = mycursor.fetchall()
+        for gate in gates:
+            gate_number = gate[3]
+            if gate_number == self.gates_combobox.get():
+                self.gates_combobox.set("Not Available")
+        
+        #Assign Staff Label
+        self.assign_staff_label = Label(self.appointment_details_frame, text="Assign Staff", font=("times new roman", 15, "bold"), bg="white", fg="black")
+        self.assign_staff_label.place(x=100, y=300)
+
+        #Assign Staff Combobox
+        self.assign_staff_combobox = ttk.Combobox(self.appointment_details_frame, font=("times new roman", 15), state="readonly")
+        
+        #get users from users table whose type is "staff" and available is "Available"
+        mycursor.execute("SELECT * FROM users WHERE type=%s AND staff_available=%s", ("staff", "Available"))
+        staffs = mycursor.fetchall()
+        for staff in staffs:
+            staff_id = staff[0]
+            username = staff[1]
+            self.assign_staff_combobox['values'] = (username,)
+        self.assign_staff_combobox.place(x=300, y=300)
+
+        #assign staff button
+        self.assign_staff_button = Button(self.appointment_details_frame, text="Assign Staff", font=("times new roman", 15, "bold"), bg="blue", fg="white", command=self.assign_staff)
+        self.assign_staff_button.place(x=100, y=350)
+
+
+
+        #back button
+        self.back_button = Button(self.appointment_details_frame, text="Back", font=("times new roman", 15, "bold"), bg="blue", fg="white", command=self.admin_dashboard)
+        self.back_button.place(x=100, y=400)
+
+
+    #assign staff
+    def assign_staff(self):
+        #get details from combobox
+        gate_number = self.gates_combobox.get()
+        staff_name = self.assign_staff_combobox.get()
+
+        #remove Gate number from Gate 2 and return int of number
+        gate_number = int(gate_number.replace("Gate ", ""))
+
+
+        #get staff id from name
+        mycursor.execute("SELECT * FROM users WHERE username=%s", (staff_name,))
+        staff = mycursor.fetchone()
+        staff_id = staff[0]
+
+        #insert into appoinment results table
+        mycursor.execute("INSERT INTO appoinment_results (appoinment_id, staff_id, gate_number, appoinment_status) VALUES (%s, %s, %s, %s)", (self.current_appointment_id, staff_id, gate_number, "In Progress"))
+        mydb.commit()
+
+        #messagebox
+        messagebox.showinfo("Success", "Staff assigned successfully and Work In Progress")
+
+
+        #update the appoinment status in appoinment table
+        mycursor.execute("UPDATE appoinment SET appoinment_status=%s WHERE id=%s", ("In Progress", self.current_appointment_id))
+        mydb.commit()
+
+
+
+        #back to admin dashboard
+        self.admin_dashboard()
+
+
+
+
+    #add staff button
+    def add_staff(self):
+
+        #clear staff tab
+        for i in self.staff_tab.winfo_children():
+            i.destroy()
+
+        #new frame
+        self.add_staff_frame = Frame(self.staff_tab, bg="white")
+        self.add_staff_frame.place(x=0, y=0, relwidth=1, relheight=1)
+
+        #add staff heading "Add Staff"
+        self.add_staff_heading = Label(self.add_staff_frame, text="Add Staff", font=("times new roman", 20, "bold"), bg="white", fg="black")
+        self.add_staff_heading.place(x=5, y=5, relwidth=1)
+
+        #username label
+        self.username_label = Label(self.add_staff_frame, text="Username", font=("times new roman", 15, "bold"), bg="white", fg="black")
+        self.username_label.place(x=100, y=50)
+
+        #username entry side by side
+        self.username_entry = Entry(self.add_staff_frame, font=("times new roman", 15), bg="lightgray")
+        self.username_entry.place(x=300, y=50)
+
+        #email label
+        self.email_label = Label(self.add_staff_frame, text="Email", font=("times new roman", 15, "bold"), bg="white", fg="black")
+        self.email_label.place(x=100, y=100)
+
+        #email entry side by side
+        self.email_entry = Entry(self.add_staff_frame, font=("times new roman", 15), bg="lightgray")
+        self.email_entry.place(x=300, y=100)
+
+        #password label
+        self.password_label = Label(self.add_staff_frame, text="Password", font=("times new roman", 15, "bold"), bg="white", fg="black")
+        self.password_label.place(x=100, y=150)
+
+        #password entry side by side
+        self.password_entry = Entry(self.add_staff_frame, font=("times new roman", 15), bg="lightgray")
+        self.password_entry.place(x=300, y=150)
+
+        #phone number label
+        self.phone_number_label = Label(self.add_staff_frame, text="Phone Number", font=("times new roman", 15, "bold"), bg="white", fg="black")
+        self.phone_number_label.place(x=100, y=200)
+
+        #phone number entry side by side
+        self.phone_number_entry = Entry(self.add_staff_frame, font=("times new roman", 15), bg="lightgray")
+        self.phone_number_entry.place(x=300, y=200)
+
+        #driving license label
+        self.driving_license_label = Label(self.add_staff_frame, text="Driving License", font=("times new roman", 15, "bold"), bg="white", fg="black")
+        self.driving_license_label.place(x=100, y=250)
+
+        #driving license entry side by side
+        self.driving_license_entry = Entry(self.add_staff_frame, font=("times new roman", 15), bg="lightgray")
+        self.driving_license_entry.place(x=300, y=250)
+
+        #add staff button
+        self.add_staff_button = Button(self.add_staff_frame, text="Add Staff", font=("times new roman", 15, "bold"), bg="blue", fg="white", command=self.add_staff_to_db)
+        self.add_staff_button.place(x=100, y=300)
+
+        #back button
+        self.back_button = Button(self.add_staff_frame, text="Back", font=("times new roman", 15, "bold"), bg="blue", fg="white", command=self.admin_dashboard)
+        self.back_button.place(x=300, y=300)
+
+
+
+    #add staff to database
+    def add_staff_to_db(self):
+        #get details from entries
+        username = self.username_entry.get()
+        email = self.email_entry.get()
+        password = self.password_entry.get()
+        phone_number = self.phone_number_entry.get()
+        driving_license = self.driving_license_entry.get()
+
+        #insert into users table
+        mycursor.execute("INSERT INTO users (username, email, password, phone_number, driving_license, type) VALUES (%s, %s, %s, %s, %s, %s)", (username, email, password, phone_number, driving_license, "staff"))
+        mydb.commit()
+
+        #messagebox
+        messagebox.showinfo("Success", "Staff added successfully")
+
+        #back to staff tab
+        self.staff_dashboard()
+
+        
+    #update staff
+    def update_staff(self):
+        #get staff details from treeview
+        self.current_staff_id = self.staff_tree.item(self.staff_tree.selection())['values'][0]
+        username = self.staff_tree.item(self.staff_tree.selection())['values'][1]
+        email = self.staff_tree.item(self.staff_tree.selection())['values'][2]
+        phone_number = self.staff_tree.item(self.staff_tree.selection())['values'][3]
+
+        #clear staff frame
+        for i in self.staff_tab_frame.winfo_children():
+            i.destroy()
+
+        #new frame
+        self.update_staff_frame = Frame(self.staff_tab_frame, bg="white")
+        self.update_staff_frame.place(x=0, y=0, relwidth=1, relheight=1)
+
+        #update staff heading "Update Staff"
+        self.update_staff_heading = Label(self.update_staff_frame, text="Update Staff", font=("times new roman", 20, "bold"), bg="white", fg="black")
+        self.update_staff_heading.place(x=5, y=5, relwidth=1)
+
+        #username label
+        self.username_label = Label(self.update_staff_frame, text="Username", font=("times new roman", 15, "bold"), bg="white", fg="black")
+        self.username_label.place(x=100, y=50)
+
+        #username entry side by side
+        self.username_entry = Entry(self.update_staff_frame, font=("times new roman", 15), bg="lightgray")
+        self.username_entry.place(x=300, y=50)
+
+        #fill in the username entry
+        self.username_entry.insert(0, username)
+
+        #email label
+        self.email_label = Label(self.update_staff_frame, text="Email", font=("times new roman", 15, "bold"), bg="white", fg="black")
+        self.email_label.place(x=100, y=100)
+
+        #email entry side by side
+        self.email_entry = Entry(self.update_staff_frame, font=("times new roman", 15), bg="lightgray")
+        self.email_entry.place(x=300, y=100)
+
+        #fill in the email entry
+        self.email_entry.insert(0, email)
+
+        #phone number label
+        self.phone_number_label = Label(self.update_staff_frame, text="Phone Number", font=("times new roman", 15, "bold"), bg="white", fg="black")
+        self.phone_number_label.place(x=100, y=150)
+
+        #phone number entry side by side
+        self.phone_number_entry = Entry(self.update_staff_frame, font=("times new roman", 15), bg="lightgray")
+        self.phone_number_entry.place(x=300, y=150)
+
+        #fill in the phone number entry
+        self.phone_number_entry.insert(0, phone_number)
+
+        #update staff button
+        self.update_staff_button = Button(self.update_staff_frame, text="Update Staff", font=("times new roman", 15, "bold"), bg="blue", fg="white", command=self.update_staff_to_db)
+        self.update_staff_button.place(x=100, y=200)
+
+
+    #update staff to database
+    def update_staff_to_db(self):
+        #get details from entries
+        username = self.username_entry.get()
+        email = self.email_entry.get()
+        phone_number = self.phone_number_entry.get()
+
+        #update users table
+        mycursor.execute("UPDATE users SET username=%s, email=%s, phone_number=%s WHERE id=%s", (username, email, phone_number, self.current_staff_id))
+        mydb.commit()
+
+        #messagebox
+        messagebox.showinfo("Success", "Staff updated successfully")
+
+        #back to staff tab
+        self.staff_dashboard()
+
+
+    #delete staff
+    def delete_staff(self):
+        #get staff id from treeview
+        staff_id = self.staff_tree.item(self.staff_tree.selection())['values'][0]
+
+        #delete staff from users table
+        mycursor.execute("DELETE FROM users WHERE id=%s", (staff_id,))
+        mydb.commit()
+
+        #messagebox
+        messagebox.showinfo("Success", "Staff deleted successfully")
+
+        #back to staff tab
+        self.admin_dashboard()
+
+        #open staff tab
+        self.notebook.select(self.staff_tab)
+
+
 
 
 
@@ -753,11 +1650,20 @@ class auto360:
 
     #delete appointment
     def delete_appointment(self):
-        appoinment_id = self.current_appoinment_id
+        #get the appointment id from treeview
+        appoinment_id = self.my_appointment_tree.item(self.my_appointment_tree.selection())['values'][0]
+        
+        #delete the appointment
         mycursor.execute("DELETE FROM appoinment WHERE id=%s", (appoinment_id,))
         mydb.commit()
+
+        #messagebox
         messagebox.showinfo("Success", "Appointment deleted successfully")
+        
+        #back to dashboard
         self.dashboard_screen()
+
+
 
     #update appointment in database
     def update_appointment_db(self):
@@ -769,7 +1675,7 @@ class auto360:
         appoinment_description = self.inspection_description_entry.get(1.0, "end")
 
         #convert timestamp to time
-        appoinment_time = datetime.datetime.strptime(appoinment_time, "%I:%M %p").time()
+        appoinment_time = datetime.strptime(appoinment_time, "%I:%M %p").time()
 
 
         if vehicle_name == "" or appoinment_date == "" or appoinment_time == "" or appoinment_type == "":
@@ -1001,7 +1907,13 @@ class auto360:
             inspection_description = None
 
         #convert timestring to time format is in
-        appoinment_time = datetime.datetime.strptime(appoinment_time, "%I:%M %p").time()
+        appoinment_time = datetime.strptime(appoinment_time, "%I:%M %p").time()
+
+        #convert date from  M/d/y format to MM-DD-YYYY format
+        appoinment_date = datetime.strptime(appoinment_date, "%m/%d/%y").strftime("%Y-%m-%d")
+
+        print(appoinment_time)
+        print(appoinment_date)
 
         if vehicle_name == "" or vehicle_model == "" or vehicle_number == "" or inspection_type == "" or inspection_description == "" or appoinment_date == "" or appoinment_time == "":
             messagebox.showerror("Error", "All fields are required")
@@ -1029,7 +1941,7 @@ class auto360:
             return
         
         #seperate from @ auto360.com then redirect to staff dashboard
-        if username == "admin" and password == "admin":
+        if username == "admin" :
             self.admin_dashboard()
             return
     
@@ -1052,9 +1964,11 @@ class auto360:
             messagebox.showinfo("Success", "Login successful")
             self.user_id = user[0]
             self.type=user[6]
+            print(self.type)
             if self.type == "staff":
                 self.staff_dashboard()
-            self.dashboard_screen()
+            else:
+                self.dashboard_screen()
 
 
     #register
